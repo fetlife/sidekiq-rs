@@ -215,6 +215,7 @@ mod test {
     use super::*;
     use crate::{RedisConnectionManager, RedisPool, RetryOpts, Worker};
     use bb8::Pool;
+    use serde_json::Value;
     use tokio::sync::Mutex;
 
     async fn redis() -> RedisPool {

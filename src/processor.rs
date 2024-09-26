@@ -5,16 +5,11 @@ use crate::{
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tokio::select;
+use tokio::sync::Mutex;
+use tokio::{select, sync::mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
-
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub enum WorkFetcher {
-    NoWorkFound,
-    Done,
-}
 
 #[derive(Clone)]
 pub struct Processor {
@@ -113,7 +108,7 @@ impl Processor {
         self
     }
 
-    async fn fetch(&mut self) -> Result<Option<UnitOfWork>> {
+    pub async fn fetch(&mut self) -> Result<Option<UnitOfWork>> {
         let response: Option<(String, String)> = self
             .redis
             .get()
@@ -129,33 +124,7 @@ impl Processor {
         Ok(None)
     }
 
-    pub async fn process_one(&mut self) -> Result<()> {
-        loop {
-            if self.cancellation_token.is_cancelled() {
-                return Ok(());
-            }
-
-            if let WorkFetcher::NoWorkFound = self.process_one_tick_once().await? {
-                continue;
-            }
-
-            return Ok(());
-        }
-    }
-
-    pub async fn process_one_tick_once(&mut self) -> Result<WorkFetcher> {
-        let work = self.fetch().await?;
-
-        if work.is_none() {
-            // If there is no job to handle, we need to add a `yield_now` in order to allow tokio's
-            // scheduler to wake up another task that may be waiting to acquire a connection from
-            // the Redis connection pool. See the following issue for more details:
-            // https://github.com/film42/sidekiq-rs/issues/43
-            tokio::task::yield_now().await;
-            return Ok(WorkFetcher::NoWorkFound);
-        }
-        let mut work = work.expect("polled and found some work");
-
+    pub async fn process_one_tick_once(&mut self, mut work: UnitOfWork) -> Result<()> {
         let started = std::time::Instant::now();
 
         info!({
@@ -189,7 +158,7 @@ impl Processor {
             "queue" = &work.job.queue,
             "jid" = &work.job.jid}, "sidekiq");
 
-        Ok(WorkFetcher::Done)
+        Ok(())
     }
 
     pub fn register<
@@ -228,21 +197,56 @@ impl Processor {
     /// memory safety because you can clone processor pretty easily.
     pub async fn run(self) {
         let mut join_set: JoinSet<()> = JoinSet::new();
+        let (tx, rx) = mpsc::channel::<UnitOfWork>(1);
+        let shared_rx = Arc::new(Mutex::new(rx));
 
+        // work producer
+        join_set.spawn({
+            let mut processor = self.clone();
+            let cancellation_token = self.cancellation_token.clone();
+
+            async move {
+                while !cancellation_token.is_cancelled() {
+                    let work = processor.fetch().await;
+                    match work {
+                        Ok(Some(work)) => {
+                            tx.send(work).await.expect("Failed to send job");
+                        }
+                        Ok(None) => {
+                            tokio::task::yield_now().await;
+                        }
+                        Err(err) => {
+                            error!("Error fetching work: {:?}", err);
+                        }
+                    }
+                }
+            }
+        });
         // Start worker routines.
         for i in 0..self.config.num_workers {
             join_set.spawn({
                 let mut processor = self.clone();
                 let cancellation_token = self.cancellation_token.clone();
+                let shared_rx = shared_rx.clone();
 
                 async move {
                     loop {
-                        if let Err(err) = processor.process_one().await {
-                            error!("Error leaked out the bottom: {:?}", err);
+                        let job = shared_rx.lock().await.recv().await;
+                        match job {
+                            Some(job) => {
+                                let result = processor.process_one_tick_once(job).await;
+                                if let Err(err) = result {
+                                    error!("Error processing job: {:?}", err);
+                                }
+                            }
+                            None => {
+                                break; // no more work to do (channel closed)
+                            }
                         }
 
                         if cancellation_token.is_cancelled() {
-                            break;
+                            shared_rx.lock().await.close();
+                            // we will drain the queue and then exit
                         }
                     }
 

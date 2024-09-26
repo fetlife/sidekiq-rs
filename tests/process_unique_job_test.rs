@@ -2,7 +2,7 @@
 mod test {
     use async_trait::async_trait;
     use bb8::Pool;
-    use sidekiq::{Processor, RedisConnectionManager, RedisPool, Result, WorkFetcher, Worker};
+    use sidekiq::{Processor, RedisConnectionManager, RedisPool, Result, Worker};
     use std::sync::{Arc, Mutex};
 
     #[async_trait]
@@ -65,7 +65,9 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(p.process_one_tick_once().await.unwrap(), WorkFetcher::Done);
+        let job = p.fetch().await.unwrap().unwrap();
+
+        assert_eq!(p.process_one_tick_once(job).await.unwrap(), ());
         assert!(*worker.did_process.lock().unwrap());
 
         TestWorker::opts()
@@ -75,9 +77,8 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(
-            p.process_one_tick_once().await.unwrap(),
-            WorkFetcher::NoWorkFound
+        assert!(
+            p.fetch().await.unwrap().is_none()
         );
     }
 }

@@ -3,7 +3,7 @@ mod test {
     use async_trait::async_trait;
     use bb8::Pool;
     use sidekiq::{
-        periodic, Processor, RedisConnectionManager, RedisPool, Result, Scheduled, WorkFetcher,
+        periodic, Processor, RedisConnectionManager, RedisPool, Result, Scheduled,
         Worker,
     };
     use std::sync::{Arc, Mutex};
@@ -86,9 +86,8 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(
-            p.process_one_tick_once().await.unwrap(),
-            WorkFetcher::NoWorkFound
+        assert!(
+            p.fetch().await.unwrap().is_none()
         );
 
         set_cron_scores_to_zero(redis.clone()).await;
@@ -101,7 +100,8 @@ mod test {
 
         assert_eq!(n, 1);
 
-        assert_eq!(p.process_one_tick_once().await.unwrap(), WorkFetcher::Done);
+        let job = p.fetch().await.unwrap().unwrap();
+        assert!(p.process_one_tick_once(job).await.is_ok());
 
         assert!(*worker.did_process.lock().unwrap());
     }

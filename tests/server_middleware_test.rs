@@ -4,7 +4,7 @@ mod test {
     use bb8::Pool;
     use sidekiq::{
         ChainIter, Job, Processor, RedisConnectionManager, RedisPool, Result, ServerMiddleware,
-        WorkFetcher, Worker, WorkerRef,
+        Worker, WorkerRef,
     };
     use std::sync::{Arc, Mutex};
 
@@ -101,7 +101,9 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(p.process_one_tick_once().await.unwrap(), WorkFetcher::Done);
+        let job = p.fetch().await.unwrap().unwrap();
+
+        assert!(p.process_one_tick_once(job).await.is_ok());
         assert!(*worker.did_process.lock().unwrap());
         assert!(*middleware.did_process.lock().unwrap());
     }
@@ -128,7 +130,8 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(p.process_one_tick_once().await.unwrap(), WorkFetcher::Done);
+        let job = p.fetch().await.unwrap().unwrap();
+        assert_eq!(p.process_one_tick_once(job).await.unwrap(), ());
         assert!(!*worker.did_process.lock().unwrap());
         assert!(*middleware.did_process.lock().unwrap());
     }
