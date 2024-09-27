@@ -103,7 +103,7 @@ mod test {
 
         let job = p.fetch().await.unwrap().unwrap();
 
-        assert!(p.process_one_tick_once(job).await.is_ok());
+        assert!(p.process_one(job).await.is_ok());
         assert!(*worker.did_process.lock().unwrap());
         assert!(*middleware.did_process.lock().unwrap());
     }
@@ -131,7 +131,7 @@ mod test {
             .unwrap();
 
         let job = p.fetch().await.unwrap().unwrap();
-        assert_eq!(p.process_one_tick_once(job).await.unwrap(), ());
+        assert_eq!(p.process_one(job).await.unwrap(), ());
         assert!(!*worker.did_process.lock().unwrap());
         assert!(*middleware.did_process.lock().unwrap());
     }

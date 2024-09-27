@@ -65,7 +65,7 @@ mod test {
             .unwrap();
 
         let job = p.fetch().await.unwrap().unwrap();
-        assert_eq!(p.process_one_tick_once(job).await.unwrap(), ());
+        assert_eq!(p.process_one(job).await.unwrap(), ());
         assert!(*worker.did_process.lock().unwrap());
     }
 }

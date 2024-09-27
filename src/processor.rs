@@ -124,7 +124,7 @@ impl Processor {
         Ok(None)
     }
 
-    pub async fn process_one_tick_once(&mut self, mut work: UnitOfWork) -> Result<()> {
+    pub async fn process_one(&mut self, mut work: UnitOfWork) -> Result<()> {
         let started = std::time::Instant::now();
 
         info!({
@@ -234,7 +234,7 @@ impl Processor {
                         let job = shared_rx.lock().await.recv().await;
                         match job {
                             Some(job) => {
-                                let result = processor.process_one_tick_once(job).await;
+                                let result = processor.process_one(job).await;
                                 if let Err(err) = result {
                                     error!("Error processing job: {:?}", err);
                                 }
