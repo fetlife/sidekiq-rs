@@ -77,10 +77,10 @@ impl Builder {
         })
     }
 
-    pub async fn register<W, Args>(self, processor: &mut Processor, worker: W) -> Result<()>
+    pub async fn register<W>(self, processor: &mut Processor, worker: W) -> Result<()>
     where
-        Args: Sync + Send + for<'de> serde::Deserialize<'de> + 'static,
-        W: Worker<Args> + 'static,
+        W::Args: Sync + Send + for<'de> serde::Deserialize<'de> + 'static,
+        W: Worker + 'static,
     {
         processor.register(worker);
         processor

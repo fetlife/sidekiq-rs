@@ -241,12 +241,11 @@ impl Processor {
     }
 
     pub fn register<
-        Args: Sync + Send + for<'de> serde::Deserialize<'de> + 'static,
-        W: Worker<Args> + 'static,
+        W: Worker + 'static,
     >(
         &mut self,
         worker: W,
-    ) {
+    ) where W::Args: Sync + Send + for<'de> serde::Deserialize<'de> + 'static {
         self.workers
             .insert(W::class_name(), Arc::new(WorkerRef::wrap(Arc::new(worker))));
     }

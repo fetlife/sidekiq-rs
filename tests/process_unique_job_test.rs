@@ -41,8 +41,10 @@ mod test {
         }
 
         #[async_trait]
-        impl Worker<()> for TestWorker {
-            async fn perform(&self, _args: ()) -> Result<()> {
+        impl Worker for TestWorker {
+            type Args = ();
+
+            async fn perform(&self, _args: Self::Args) -> Result<()> {
                 let mut this = self.did_process.lock().unwrap();
                 *this = true;
 

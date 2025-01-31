@@ -42,14 +42,15 @@ struct PaymentReportArgs {
 }
 
 #[async_trait]
-impl Worker<PaymentReportArgs> for PaymentReportWorker {
+impl Worker for PaymentReportWorker {
+    type Args = PaymentReportArgs;
     // Default worker options
     fn opts() -> sidekiq::WorkerOpts<Self> {
         sidekiq::WorkerOpts::new().queue("yolo")
     }
 
     // Worker implementation
-    async fn perform(&self, args: PaymentReportArgs) -> Result<()> {
+    async fn perform(&self, args: Self::Args) -> Result<()> {
         self.send_report(args.user_guid).await
     }
 }
@@ -312,8 +313,10 @@ struct ExampleWorker {
 
 
 #[async_trait]
-impl Worker<()> for ExampleWorker {
-    async fn perform(&self, args: PaymentReportArgs) -> Result<()> {
+impl Worker for ExampleWorker {
+    type Args = PaymentReportArgs;
+
+    async fn perform(&self, args: Self::Args) -> Result<()> {
         use redis::AsyncCommands;
 
         // And then they are available here...
@@ -355,8 +358,10 @@ pub struct MyWorker;
 use sidekiq::Result;
 
 #[async_trait]
-impl Worker<()> for MyWorker {
-    async fn perform(&self, _args: ()) -> Result<()> {
+impl Worker for MyWorker {
+    type Args = ();
+
+    async fn perform(&self, _args: Self::Args) -> Result<()> {
         Ok(())
     }
 

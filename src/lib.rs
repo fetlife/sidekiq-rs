@@ -197,18 +197,18 @@ fn new_jid() -> String {
     hex::encode(bytes)
 }
 
-pub struct WorkerOpts<Args, W: Worker<Args> + ?Sized> {
+pub struct WorkerOpts<W: Worker + ?Sized> {
     queue: String,
     retry: RetryOpts,
-    args: PhantomData<Args>,
+    args: PhantomData<W::Args>,
     worker: PhantomData<W>,
     unique_for: Option<std::time::Duration>,
     retry_queue: Option<String>,
 }
 
-impl<Args, W> WorkerOpts<Args, W>
+impl<W> WorkerOpts<W>
 where
-    W: Worker<Args>,
+    W: Worker,
 {
     #[must_use]
     pub fn new() -> Self {
@@ -284,8 +284,8 @@ where
     }
 }
 
-impl<Args, W: Worker<Args>> From<&WorkerOpts<Args, W>> for EnqueueOpts {
-    fn from(opts: &WorkerOpts<Args, W>) -> Self {
+impl<W: Worker> From<&WorkerOpts<W>> for EnqueueOpts {
+    fn from(opts: &WorkerOpts<W>) -> Self {
         Self {
             retry: opts.retry.clone(),
             queue: opts.queue.clone(),
@@ -295,14 +295,16 @@ impl<Args, W: Worker<Args>> From<&WorkerOpts<Args, W>> for EnqueueOpts {
     }
 }
 
-impl<Args, W: Worker<Args>> Default for WorkerOpts<Args, W> {
+impl<W: Worker> Default for WorkerOpts<W> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-pub trait Worker<Args>: Send + Sync {
+pub trait Worker: Send + Sync {
+    type Args;
+
     /// Signal to WorkerRef to not attempt to modify the JsonValue args
     /// before calling the perform function. This is useful if the args
     /// are expected to be a `Vec<T>` that might be `len() == 1` or a
@@ -312,7 +314,7 @@ pub trait Worker<Args>: Send + Sync {
     }
 
     #[must_use]
-    fn opts() -> WorkerOpts<Args, Self>
+    fn opts() -> WorkerOpts<Self>
     where
         Self: Sized,
     {
@@ -339,23 +341,23 @@ pub trait Worker<Args>: Send + Sync {
         name.to_case(Case::UpperCamel)
     }
 
-    async fn perform_async(redis: &RedisPool, args: Args) -> Result<()>
+    async fn perform_async(redis: &RedisPool, args: Self::Args) -> Result<()>
     where
         Self: Sized,
-        Args: Send + Sync + serde::Serialize + 'static,
+        Self::Args: Send + Sync + serde::Serialize + 'static,
     {
         Self::opts().perform_async(redis, args).await
     }
 
-    async fn perform_in(redis: &RedisPool, duration: std::time::Duration, args: Args) -> Result<()>
+    async fn perform_in(redis: &RedisPool, duration: std::time::Duration, args: Self::Args) -> Result<()>
     where
         Self: Sized,
-        Args: Send + Sync + serde::Serialize + 'static,
+        Self::Args: Send + Sync + serde::Serialize + 'static,
     {
         Self::opts().perform_in(redis, duration, args).await
     }
 
-    async fn perform(&self, args: Args) -> Result<()>;
+    async fn perform(&self, args: Self::Args) -> Result<()>;
 }
 
 // We can't store a Vec<Box<dyn Worker<Args>>>, because that will only work
@@ -371,17 +373,17 @@ pub struct WorkerRef {
     max_retries: usize,
 }
 
-async fn invoke_worker<Args, W>(args: JsonValue, worker: Arc<W>) -> Result<()>
+async fn invoke_worker<W>(args: JsonValue, worker: Arc<W>) -> Result<()>
 where
-    Args: Send + Sync + 'static,
-    W: Worker<Args> + 'static,
-    for<'de> Args: Deserialize<'de>,
+    W::Args: Send + Sync + 'static,
+    W: Worker + 'static,
+    for<'de> W::Args: Deserialize<'de>,
 {
     let args = if worker.disable_argument_coercion() {
         args
     } else {
         // Ensure any caller expecting to receive `()` will always work.
-        if std::any::TypeId::of::<Args>() == std::any::TypeId::of::<()>() {
+        if std::any::TypeId::of::<W::Args>() == std::any::TypeId::of::<()>() {
             JsonValue::Null
         } else {
             // If the value contains a single item Vec then
@@ -396,16 +398,16 @@ where
         }
     };
 
-    let args: Args = serde_json::from_value(args)?;
+    let args: W::Args = serde_json::from_value(args)?;
     worker.perform(args).await
 }
 
 impl WorkerRef {
-    pub(crate) fn wrap<Args, W>(worker: Arc<W>) -> Self
+    pub(crate) fn wrap<W>(worker: Arc<W>) -> Self
     where
-        Args: Send + Sync + 'static,
-        W: Worker<Args> + 'static,
-        for<'de> Args: Deserialize<'de>,
+        W::Args: Send + Sync + 'static,
+        W: Worker + 'static,
+        for<'de> W::Args: Deserialize<'de>,
     {
         Self {
             work_fn: Arc::new(Box::new({
@@ -655,8 +657,10 @@ mod test {
                 pub struct TestOpts;
 
                 #[async_trait]
-                impl Worker<()> for TestOpts {
-                    fn opts() -> WorkerOpts<(), Self>
+                impl Worker for TestOpts {
+                    type Args = ();
+
+                    fn opts() -> WorkerOpts<Self>
                     where
                         Self: Sized,
                     {
@@ -671,7 +675,7 @@ mod test {
                             .queue("yolo_quue")
                     }
 
-                    async fn perform(&self, _args: ()) -> Result<()> {
+                    async fn perform(&self, _args: Self::Args) -> Result<()> {
                         Ok(())
                     }
                 }
@@ -679,8 +683,10 @@ mod test {
                 pub struct X1Y2MyJob;
 
                 #[async_trait]
-                impl Worker<()> for X1Y2MyJob {
-                    async fn perform(&self, _args: ()) -> Result<()> {
+                impl Worker for X1Y2MyJob {
+                    type Args = ();
+
+                    async fn perform(&self, _args: Self::Args) -> Result<()> {
                         Ok(())
                     }
                 }
@@ -688,8 +694,10 @@ mod test {
                 pub struct TestModuleWorker;
 
                 #[async_trait]
-                impl Worker<()> for TestModuleWorker {
-                    async fn perform(&self, _args: ()) -> Result<()> {
+                impl Worker for TestModuleWorker {
+                    type Args = ();
+
+                    async fn perform(&self, _args: Self::Args) -> Result<()> {
                         Ok(())
                     }
                 }
@@ -697,8 +705,10 @@ mod test {
                 pub struct TestCustomClassNameWorker;
 
                 #[async_trait]
-                impl Worker<()> for TestCustomClassNameWorker {
-                    async fn perform(&self, _args: ()) -> Result<()> {
+                impl Worker for TestCustomClassNameWorker {
+                    type Args = ();
+
+                    async fn perform(&self, _args: Self::Args) -> Result<()> {
                         Ok(())
                     }
 
@@ -745,38 +755,46 @@ mod test {
 
     struct TestGenericWorker;
     #[async_trait]
-    impl Worker<TestArg> for TestGenericWorker {
-        async fn perform(&self, _args: TestArg) -> Result<()> {
+    impl Worker for TestGenericWorker {
+        type Args = TestArg;
+
+        async fn perform(&self, _args: Self::Args) -> Result<()> {
             Ok(())
         }
     }
 
     struct TestMultiArgWorker;
     #[async_trait]
-    impl Worker<(TestArg, TestArg)> for TestMultiArgWorker {
-        async fn perform(&self, _args: (TestArg, TestArg)) -> Result<()> {
+    impl Worker for TestMultiArgWorker {
+        type Args = (TestArg, TestArg);
+
+        async fn perform(&self, _args: Self::Args) -> Result<()> {
             Ok(())
         }
     }
 
     struct TestTupleArgWorker;
     #[async_trait]
-    impl Worker<(TestArg,)> for TestTupleArgWorker {
+    impl Worker for TestTupleArgWorker {
+        type Args = (TestArg,);
+
         fn disable_argument_coercion(&self) -> bool {
             true
         }
-        async fn perform(&self, _args: (TestArg,)) -> Result<()> {
+        async fn perform(&self, _args: Self::Args) -> Result<()> {
             Ok(())
         }
     }
 
     struct TestVecArgWorker;
     #[async_trait]
-    impl Worker<Vec<TestArg>> for TestVecArgWorker {
+    impl Worker for TestVecArgWorker {
+        type Args = Vec<TestArg>;
+
         fn disable_argument_coercion(&self) -> bool {
             true
         }
-        async fn perform(&self, _args: Vec<TestArg>) -> Result<()> {
+        async fn perform(&self, _args: Self::Args) -> Result<()> {
             Ok(())
         }
     }

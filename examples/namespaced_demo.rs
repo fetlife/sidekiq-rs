@@ -6,8 +6,10 @@ use sidekiq::{Processor, RedisConnectionManager, Result, Worker};
 struct HelloWorker;
 
 #[async_trait]
-impl Worker<()> for HelloWorker {
-    async fn perform(&self, _args: ()) -> Result<()> {
+impl Worker for HelloWorker {
+    type Args = ();
+
+    async fn perform(&self, _args: Self::Args) -> Result<()> {
         println!("Hello, world!");
 
         Ok(())

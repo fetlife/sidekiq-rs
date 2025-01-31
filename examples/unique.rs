@@ -7,15 +7,17 @@ use sidekiq::{Processor, RedisConnectionManager, Result, Worker};
 struct CustomerNotificationWorker;
 
 #[async_trait]
-impl Worker<CustomerNotification> for CustomerNotificationWorker {
-    fn opts() -> sidekiq::WorkerOpts<CustomerNotification, Self> {
+impl Worker for CustomerNotificationWorker {
+    type Args = CustomerNotification;
+
+    fn opts() -> sidekiq::WorkerOpts<Self> {
         // Use default options to set the unique_for option by default.
         sidekiq::WorkerOpts::new()
             .queue("customers")
             .unique_for(std::time::Duration::from_secs(30))
     }
 
-    async fn perform(&self, _args: CustomerNotification) -> Result<()> {
+    async fn perform(&self, _args: Self::Args) -> Result<()> {
         Ok(())
     }
 }

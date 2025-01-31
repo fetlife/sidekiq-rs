@@ -11,8 +11,10 @@ use tracing::{error, info};
 struct HelloWorker;
 
 #[async_trait]
-impl Worker<()> for HelloWorker {
-    async fn perform(&self, _args: ()) -> Result<()> {
+impl Worker for HelloWorker {
+    type Args = ();
+
+    async fn perform(&self, _args: Self::Args) -> Result<()> {
         // I don't use any args. I do my own work.
         Ok(())
     }
@@ -36,12 +38,14 @@ struct PaymentReportArgs {
 }
 
 #[async_trait]
-impl Worker<PaymentReportArgs> for PaymentReportWorker {
-    fn opts() -> sidekiq::WorkerOpts<PaymentReportArgs, Self> {
+impl Worker for PaymentReportWorker {
+    type Args = PaymentReportArgs;
+
+    fn opts() -> sidekiq::WorkerOpts<Self> {
         sidekiq::WorkerOpts::new().queue("yolo")
     }
 
-    async fn perform(&self, args: PaymentReportArgs) -> Result<()> {
+    async fn perform(&self, args: Self::Args) -> Result<()> {
         self.send_report(args.user_guid).await
     }
 }

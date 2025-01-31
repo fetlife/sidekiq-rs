@@ -42,8 +42,10 @@ mod test {
     struct AlwaysFailWorker;
 
     #[async_trait]
-    impl Worker<()> for AlwaysFailWorker {
-        async fn perform(&self, _args: ()) -> Result<()> {
+    impl Worker for AlwaysFailWorker {
+        type Args = ();
+
+        async fn perform(&self, _args: Self::Args) -> Result<()> {
             Err(Error::Message("big ouchie".to_string()))
         }
     }
@@ -54,8 +56,10 @@ mod test {
     }
 
     #[async_trait]
-    impl Worker<()> for TestWorker {
-        async fn perform(&self, _args: ()) -> Result<()> {
+    impl Worker for TestWorker {
+        type Args = ();
+
+        async fn perform(&self, _args: Self::Args) -> Result<()> {
             let mut this = self.did_process.lock().unwrap();
             *this = true;
 
@@ -300,7 +304,7 @@ mod test {
         let (mut retry_p, _retry_redis) = new_base_processor(retry_queue.clone()).await;
         p.register(worker.clone());
 
-        let mut job = AlwaysFailWorker::opts()
+        let _job = AlwaysFailWorker::opts()
             .queue(queue)
             .retry(5)
             .retry_queue(&retry_queue)
